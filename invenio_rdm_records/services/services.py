@@ -17,7 +17,7 @@ from invenio_db import db
 from invenio_drafts_resources.services.records import RecordDraftService
 from invenio_records_resources.services.files.service import RecordFileService
 from invenio_records_resources.services.records.schema import \
-    MarshmallowServiceSchema
+    ServiceSchemaWrapper
 from marshmallow.exceptions import ValidationError
 
 from . import config
@@ -40,7 +40,7 @@ class RDMRecordService(RecordDraftService):
     @property
     def schema_secret_link(self):
         """Schema for secret links."""
-        return MarshmallowServiceSchema(
+        return ServiceSchemaWrapper(
             self, schema=self.config.schema_secret_link
         )
 
