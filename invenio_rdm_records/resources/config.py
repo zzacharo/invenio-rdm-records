@@ -14,6 +14,7 @@ from citeproc_styles import StyleNotFoundError
 from flask_resources import HTTPJSONException, JSONSerializer, \
     ResponseHandler, create_error_handler, resource_requestctx
 from invenio_drafts_resources.resources import RecordResourceConfig
+from invenio_records.systemfields.relations import InvalidRelationValue
 from invenio_records_resources.resources.files import FileResourceConfig
 
 from invenio_rdm_records.resources.args import RDMSearchRequestArgsSchema
@@ -89,6 +90,12 @@ class RDMRecordResourceConfig(RecordResourceConfig):
                 description="Citation string style not found.",
             )
         ),
+        InvalidRelationValue: create_error_handler(
+            lambda exc: HTTPJSONException(
+                code=400,
+                description=exc.args[0],
+            )
+        )
     }
 
 
