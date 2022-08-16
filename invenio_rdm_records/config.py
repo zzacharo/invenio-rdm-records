@@ -340,6 +340,11 @@ in DataCite XML format.
 
 
 """Custom fields."""
+RDM_CUSTOM_FIELDS_NAMESPACES = {
+    "cern": "https://cern.ch/terms",
+    "dwc": "http://rs.tdwg.org/dwc/terms/",
+}
+
 RDM_CUSTOM_FIELDS = {}
 """Records custom fields definition.
 
