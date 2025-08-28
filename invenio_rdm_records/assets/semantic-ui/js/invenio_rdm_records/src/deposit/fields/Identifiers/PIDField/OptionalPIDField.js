@@ -17,6 +17,7 @@ import {
 } from "./components";
 import { getFieldErrors } from "./components/helpers";
 import { SET_DOI_NEEDED } from "../../../state/types";
+import { DepositStatus } from "../../../state/reducers/deposit";
 
 const PROVIDER_EXTERNAL = "external";
 const UPDATE_PID_DEBOUNCE_MS = 200;
@@ -154,7 +155,6 @@ class OptionalPIDFieldCmp extends Component {
       form,
       fieldPath,
       fieldLabel,
-      isEditingPublishedRecord,
       managedHelpText,
       pidLabel,
       pidIcon,
@@ -163,6 +163,7 @@ class OptionalPIDFieldCmp extends Component {
       unmanagedHelpText,
       pidType,
       optionalDOItransitions,
+      publishedDOI,
     } = this.props;
 
     const {
@@ -175,6 +176,8 @@ class OptionalPIDFieldCmp extends Component {
     } = this.computeManagedUnmanaged();
 
     const fieldError = getFieldErrors(form, fieldPath);
+    const hasPublishedLocalDOI =
+      publishedDOI?.identifier && publishedDOI?.provider !== PROVIDER_EXTERNAL;
 
     return (
       <>
@@ -207,7 +210,8 @@ class OptionalPIDFieldCmp extends Component {
 
         {canBeManaged && _isManagedSelected && (
           <ManagedIdentifierCmp
-            disabled={hasDoi && isEditingPublishedRecord}
+            // You cannot change the managed DOI option if you have already published with a local DOI
+            disabled={hasPublishedLocalDOI}
             btnLabelDiscardPID={btnLabelDiscardPID}
             btnLabelGetPID={btnLabelGetPID}
             form={form}
@@ -247,7 +251,6 @@ OptionalPIDFieldCmp.propTypes = {
   canBeUnmanaged: PropTypes.bool.isRequired,
   fieldPath: PropTypes.string.isRequired,
   fieldLabel: PropTypes.string.isRequired,
-  isEditingPublishedRecord: PropTypes.bool.isRequired,
   managedHelpText: PropTypes.string,
   pidIcon: PropTypes.string.isRequired,
   pidLabel: PropTypes.string.isRequired,
@@ -258,6 +261,8 @@ OptionalPIDFieldCmp.propTypes = {
   record: PropTypes.object.isRequired,
   doiDefaultSelection: PropTypes.object.isRequired,
   optionalDOItransitions: PropTypes.array.isRequired,
+  /* from Redux */
+  publishedDOI: PropTypes.object,
   setNoINeedDOI: PropTypes.func.isRequired,
 };
 
@@ -265,9 +270,14 @@ OptionalPIDFieldCmp.defaultProps = {
   managedHelpText: null,
   unmanagedHelpText: null,
   field: undefined,
+  publishedDOI: {},
 };
 
-export const OptionalPIDField = connect(null, (dispatch) => {
+const mapStateToProps = (state) => ({
+  publishedDOI: state.deposit.config?.published_record?.pids?.doi,
+});
+
+export const OptionalPIDField = connect(mapStateToProps, (dispatch) => {
   return {
     setNoINeedDOI: (value) =>
       dispatch({

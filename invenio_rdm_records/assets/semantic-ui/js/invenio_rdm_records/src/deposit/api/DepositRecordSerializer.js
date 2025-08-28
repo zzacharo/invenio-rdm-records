@@ -47,10 +47,14 @@ export class DepositRecordSerializer {
 }
 
 export class RDMDepositRecordSerializer extends DepositRecordSerializer {
-  constructor(defaultLocale, customFieldVocabularies = []) {
+  constructor(defaultLocale, customFieldVocabularies = [], publishedRecord = {}) {
     super();
     this.defaultLocale = defaultLocale;
     this.customFieldVocabularies = customFieldVocabularies;
+    // Keep the original published record to avoid removing PIDs
+    // added by the backend. The value is instantiated once from the
+    // backend view
+    this.originalPublishedRecord = publishedRecord;
   }
 
   get depositRecordSchema() {
@@ -408,7 +412,12 @@ export class RDMDepositRecordSerializer extends DepositRecordSerializer {
     ]);
 
     // Save pids so they are not removed when an empty value is passed
-    let savedPIDsFieldValue = originalRecord.pids || {};
+    const savedNoDOIPIDS = this.originalPublishedRecord.pids
+      ? _pickBy(this.originalPublishedRecord.pids, (value, key) => {
+          return key !== "doi";
+        })
+      : {};
+    let savedPIDsFieldValue = { ...(originalRecord.pids || {}), ...savedNoDOIPIDS };
 
     let serializedRecord = originalRecord;
     for (let key in this.depositRecordSchema) {

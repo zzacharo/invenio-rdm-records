@@ -35,7 +35,8 @@ export class DepositFormApp extends Component {
       ? props.recordSerializer
       : new RDMDepositRecordSerializer(
           props.config.default_locale,
-          props.config.custom_fields.vocabularies
+          props.config.custom_fields.vocabularies,
+          props.config.published_record
         );
 
     const apiHeaders = props.config.apiHeaders ? props.config.apiHeaders : null;

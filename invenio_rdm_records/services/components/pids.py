@@ -146,7 +146,7 @@ class PIDsComponent(ServiceComponent):
         to_remove = copy(draft.get("pids", {}))
         record_pids = record.get("pids", {}).keys() if record else []
         for scheme in record_pids:
-            to_remove.pop(scheme)
+            to_remove.pop(scheme, None)
 
         self.service.pids.pid_manager.discard_all(to_remove)
         draft.pids = {}

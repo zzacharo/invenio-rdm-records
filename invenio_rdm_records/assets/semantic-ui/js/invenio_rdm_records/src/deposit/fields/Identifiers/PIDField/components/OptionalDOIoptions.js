@@ -42,13 +42,18 @@ class OptionalDOIoptionsCmp extends Component {
     ].includes(record.status);
 
     const hasDoi = doi !== "";
-    const isUnManagedDisabled = alreadyPublished
-      ? !optionalDOItransitions.allowed_providers.includes("external")
-      : hasDoi && isManagedSelected;
+    const doiManaged = hasDoi && isManagedSelected;
 
-    const isNoNeedDisabled = alreadyPublished
-      ? !optionalDOItransitions.allowed_providers.includes("not_needed")
-      : hasDoi && isManagedSelected;
+    function isDisabled(provider) {
+      return (
+        doiManaged ||
+        (alreadyPublished &&
+          !optionalDOItransitions.allowed_providers.includes(provider))
+      );
+    }
+
+    const isUnManagedDisabled = isDisabled("external");
+    const isNoNeedDisabled = isDisabled("not_needed");
 
     const isManagedTransition = optionalDOItransitions?.allowed_providers?.some(
       (val) => !["external", "not_needed"].includes(val)
