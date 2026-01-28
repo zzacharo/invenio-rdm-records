@@ -24,6 +24,7 @@ from ...proxies import current_rdm_records
 from ...requests.decorators import request_next_link
 from ..errors import (
     RecordSubmissionClosedCommunityError,
+    ReviewCommunityChangeError,
     ReviewExistsError,
     ReviewNotFoundError,
     ReviewStateError,
@@ -64,7 +65,8 @@ class ReviewService(RecordService):
         if record.parent.review is not None:
             raise ReviewExistsError(_("A review already exists for this record"))
         # Validate that record has not been published.
-        if record.is_published or record.versions.index > 1:
+        # Allow new versions (index > 1) to create reviews for re-submission
+        if record.is_published and record.versions.index == 1:
             raise ReviewStateError(
                 _("You cannot create a review for an already published record.")
             )
@@ -76,6 +78,16 @@ class ReviewService(RecordService):
         receiver = ResolverRegistry.resolve_entity_proxy(
             data.pop("receiver", None)
         ).resolve()
+
+        # For new versions, validate that the community hasn't changed
+        if record.versions.index > 1:
+            default_community = record.parent.communities.default
+            if default_community and str(receiver.id) != str(default_community.id):
+                raise ReviewCommunityChangeError(
+                    _(
+                        "New versions must be submitted to the same community as the original record."
+                    )
+                )
 
         # Delegate to requests service to create the request
         request_item = current_requests_service.create(

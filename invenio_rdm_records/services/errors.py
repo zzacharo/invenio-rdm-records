@@ -74,6 +74,12 @@ class ReviewExistsError(ReviewException):
     """Review exists - for operations which should when a review exists."""
 
 
+class ReviewCommunityChangeError(ReviewException):
+    """Review community cannot be changed for new versions."""
+
+    description = _("New versions must be submitted to the same community as the original record.")
+
+
 class CommunitySubmissionException(Exception):
     """Base exception for community submission requests."""
 

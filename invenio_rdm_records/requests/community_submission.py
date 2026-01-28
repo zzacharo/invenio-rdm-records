@@ -65,14 +65,16 @@ class AcceptAction(actions.AcceptAction):
         # - Put below into a service method
         # - Check permissions
 
-        # Add community to record.
+        # Add community to record only if not already present (e.g., new versions)
         is_default = self.request.type.set_as_default
-        draft.parent.communities.add(
-            community, request=self.request, default=is_default
-        )
+        if str(community.id) not in draft.parent.communities.ids:
+            draft.parent.communities.add(
+                community, request=self.request, default=is_default
+            )
 
         if getattr(community, "parent", None):
-            draft.parent.communities.add(community.parent, request=self.request)
+            if str(community.parent.id) not in draft.parent.communities.ids:
+                draft.parent.communities.add(community.parent, request=self.request)
 
         uow.register(
             ParentRecordCommitOp(draft.parent, indexer_context=dict(service=service))
@@ -149,20 +151,13 @@ class ExpireAction(actions.ExpireAction):
 
     def execute(self, identity, uow):
         """Execute action."""
-        # Same reasoning as in 'decline'
+        # Clear review state to allow user to re-submit after expiry
         draft = self.request.topic.resolve()
-
-        # TODO: What more to do? simply close the request? Similarly to
-        # decline, how does a user resubmits the request to the same community.
-        super().execute(identity, uow)
-
-        # TODO: this shouldn't be required BUT because of the caching mechanism
-        # in the review systemfield, the review should be set with the updated
-        # request object
-        draft.parent.review = self.request
+        draft.parent.review = None
         uow.register(
             ParentRecordCommitOp(draft.parent, indexer_context=dict(service=service))
         )
+        super().execute(identity, uow)
         uow.register(
             NotificationOp(
                 CommunityInclusionExpireNotificationBuilder.build(

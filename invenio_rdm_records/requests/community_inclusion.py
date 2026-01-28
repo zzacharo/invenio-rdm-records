@@ -55,15 +55,19 @@ class AcceptAction(actions.AcceptAction):
         record = self.request.topic.resolve()
         community = self.request.receiver.resolve()
 
-        # integrity check, it should never happen on a published record
-        assert not record.parent.review
+        # Clear any stale review reference (safety check for edge cases)
+        # This can happen if a review was not properly cleared on new versions
+        if record.parent.review:
+            record.parent.review = None
 
         if not is_access_restriction_valid(record, community):
             raise InvalidAccessRestrictions()
 
-        # set the community to `default` if it is the first
-        default = not record.parent.communities
-        record.parent.communities.add(community, request=self.request, default=default)
+        # Add community to record only if not already present (e.g., new versions)
+        if str(community.id) not in record.parent.communities.ids:
+            # set the community to `default` if it is the first
+            default = not record.parent.communities
+            record.parent.communities.add(community, request=self.request, default=default)
 
         parent_community = getattr(community, "parent", None)
         if (

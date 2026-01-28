@@ -52,12 +52,12 @@ export class DepositStatus {
     DepositStatus.DECLINED,
     DepositStatus.EXPIRED,
     DepositStatus.DRAFT,
+    DepositStatus.NEW_VERSION_DRAFT,
   ];
 
   static disallowsSubmitForReviewStates = [
     DepositStatus.PUBLISHED,
     DepositStatus.IN_REVIEW,
-    DepositStatus.NEW_VERSION_DRAFT,
   ];
 }
 
@@ -186,13 +186,10 @@ export function computeDepositState(record, selectedCommunity = undefined) {
   const _showSubmitReviewButton =
     communityIsSelected &&
     !isReviewForSelectedCommunityDeclinedOrExpired &&
-    !hasStatus(record, [DepositStatus.PUBLISHED, DepositStatus.NEW_VERSION_DRAFT]);
+    !hasStatus(record, [DepositStatus.PUBLISHED]);
 
   // show community selection button conditions extracted to be reused
-  const _showCommunitySelectionButton = !hasStatus(record, [
-    DepositStatus.PUBLISHED,
-    DepositStatus.NEW_VERSION_DRAFT,
-  ]);
+  const _showCommunitySelectionButton = !hasStatus(record, [DepositStatus.PUBLISHED]);
 
   const shouldUpdateReview =
     communityIsSelected &&
@@ -206,7 +203,8 @@ export function computeDepositState(record, selectedCommunity = undefined) {
     _showCommunitySelectionButton &&
     (isReviewForSelectedCommunityDeclinedOrExpired ||
       (depositStatusDisallowsSubmitForReview &&
-        !isRecordPublishedWithoutOrUnresolvedCommunity));
+        !isRecordPublishedWithoutOrUnresolvedCommunity) ||
+      hasStatus(record, [DepositStatus.NEW_VERSION_DRAFT]));
 
   return {
     selectedCommunity: _selectedCommunity,

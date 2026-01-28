@@ -32,6 +32,7 @@ from invenio_rdm_records.records.systemfields.draft_status import DraftStatus
 from invenio_rdm_records.requests.community_submission import CommunitySubmission
 from invenio_rdm_records.services.errors import (
     InvalidAccessRestrictions,
+    ReviewCommunityChangeError,
     ReviewExistsError,
     ReviewNotFoundError,
     ReviewStateError,
@@ -460,24 +461,30 @@ def test_create_when_already_published(minimal_record, running_app, community, s
 
 
 def test_create_with_new_version(minimal_record, running_app, community, service):
-    """Review creation should fail for unpublished new version."""
+    """Review creation should succeed for new version to allow re-submission."""
     # Create draft
     draft = service.create(running_app.superuser_identity, minimal_record)
     # Publish and create new version of the record.
     service.publish(running_app.superuser_identity, draft.id)
     draft = service.new_version(running_app.superuser_identity, draft.id)
-    # Then try to create a review (you use update, not create for this).
+    # Create a review for the new version (should succeed now)
     data = {
         "type": CommunitySubmission.type_id,
         "receiver": {"community": community.data["id"]},
     }
-    with pytest.raises(ReviewStateError):
-        service.review.update(
-            running_app.superuser_identity,
-            draft.id,
-            data,
-            revision_id=draft.data["revision_id"],
-        )
+    req = service.review.update(
+        running_app.superuser_identity,
+        draft.id,
+        data,
+        revision_id=draft.data["revision_id"],
+    )
+    # Verify the review was created successfully
+    assert req.data["status"] == "created"
+    assert req.data["type"] == CommunitySubmission.type_id
+    assert req.data["receiver"] == {"community": community.data["id"]}
+    # Verify the draft has the review set
+    draft = service.read_draft(running_app.superuser_identity, draft.id)
+    assert draft.data["parent"]["review"]["id"] == req.data["id"]
 
 
 def test_update(draft, running_app, community2, service, db):
@@ -1201,3 +1208,183 @@ def test_share_draft_shows_up_in_shared_user_requests(
     )
     data = list(results.hits)
     assert len(data) == 0
+
+
+def test_new_version_complete_resubmission_workflow(
+    minimal_record, running_app, open_review_community, service, community_owner, db
+):
+    """Test complete workflow: submit v1, accept, create v2, submit v2 for review."""
+    # Step 1: Create first version with review
+    minimal_record["parent"] = {
+        "review": {
+            "type": CommunitySubmission.type_id,
+            "receiver": {"community": open_review_community.data["id"]},
+        }
+    }
+    draft_v1 = service.create(community_owner.identity, minimal_record)
+
+    # Step 2: Submit first version for review
+    req_v1 = service.review.submit(
+        community_owner.identity,
+        draft_v1.id,
+        data={},
+        require_review=True,
+    )
+    assert req_v1.data["status"] == "submitted"
+
+    # Step 3: Accept the first version (publish it)
+    community_owner_identity = get_community_owner_identity(open_review_community)
+    current_requests_service.execute_action(
+        community_owner_identity, req_v1.id, "accept"
+    )
+
+    # Verify first version is published and in community
+    record_v1 = service.read(community_owner.identity, draft_v1.id)
+    assert record_v1.data["is_published"] is True
+    assert open_review_community.data["id"] in record_v1.data["parent"]["communities"]["ids"]
+    assert "review" not in record_v1.data["parent"]  # Review should be cleared after acceptance
+
+    # Step 4: Create new version (v2)
+    draft_v2 = service.new_version(community_owner.identity, draft_v1.id)
+    assert draft_v2.data["status"] == "new_version_draft"
+    assert "review" not in draft_v2.data["parent"]  # No review on new version yet
+    # Community should be inherited
+    assert open_review_community.data["id"] in draft_v2.data["parent"]["communities"]["ids"]
+
+    # Step 5: Create review for new version (this should work now!)
+    data = {
+        "type": CommunitySubmission.type_id,
+        "receiver": {"community": open_review_community.data["id"]},
+    }
+    req_v2 = service.review.update(
+        community_owner.identity,
+        draft_v2.id,
+        data,
+        revision_id=draft_v2.data["revision_id"],
+    )
+    assert req_v2.data["status"] == "created"
+    assert req_v2.data["type"] == CommunitySubmission.type_id
+
+    # Step 6: Submit new version for review
+    req_v2_submitted = service.review.submit(
+        community_owner.identity,
+        draft_v2.id,
+        data={},
+        require_review=True,
+    )
+    assert req_v2_submitted.data["status"] == "submitted"
+
+    # Verify the new version has the review set
+    draft_v2_refreshed = service.read_draft(community_owner.identity, draft_v2.id)
+    assert draft_v2_refreshed.data["parent"]["review"]["id"] == req_v2_submitted.data["id"]
+    assert draft_v2_refreshed.data["status"] == "in_review"
+
+    # Step 7: Accept the new version
+    current_requests_service.execute_action(
+        community_owner_identity, req_v2_submitted.id, "accept"
+    )
+
+    # Verify second version is published
+    record_v2 = service.read(community_owner.identity, draft_v2.id)
+    assert record_v2.data["is_published"] is True
+    assert record_v2.data["parent"]["communities"]["ids"] == record_v1.data["parent"]["communities"]["ids"]
+    assert "review" not in record_v2.data["parent"]  # Review cleared after acceptance
+
+
+def test_new_version_cannot_change_community(
+    minimal_record, running_app, community, community2, service
+):
+    """Test that new versions cannot change to a different community."""
+    # Step 1: Create and publish first version in community 1
+    draft_v1 = service.create(running_app.superuser_identity, minimal_record)
+    # Add to community and publish
+    draft_v1 = service.read_draft(running_app.superuser_identity, draft_v1.id)
+    draft_v1._record.parent.communities.add(community)
+    draft_v1._record.parent.commit()
+    service.publish(running_app.superuser_identity, draft_v1.id)
+
+    # Step 2: Create new version
+    draft_v2 = service.new_version(running_app.superuser_identity, draft_v1.id)
+    assert draft_v2.data["status"] == "new_version_draft"
+
+    # Step 3: Try to create review for DIFFERENT community (should fail)
+    data = {
+        "type": CommunitySubmission.type_id,
+        "receiver": {"community": community2.data["id"]},  # Different community!
+    }
+    with pytest.raises(ReviewCommunityChangeError):
+        service.review.update(
+            running_app.superuser_identity,
+            draft_v2.id,
+            data,
+            revision_id=draft_v2.data["revision_id"],
+        )
+
+    # Step 4: Verify creating review for SAME community still works
+    data_same_community = {
+        "type": CommunitySubmission.type_id,
+        "receiver": {"community": community.data["id"]},  # Same community as v1
+    }
+    req = service.review.update(
+        running_app.superuser_identity,
+        draft_v2.id,
+        data_same_community,
+        revision_id=draft_v2.data["revision_id"],
+    )
+    assert req.data["status"] == "created"
+    assert req.data["receiver"] == {"community": community.data["id"]}
+
+
+def test_new_version_accept_doesnt_duplicate_community(
+    minimal_record, running_app, open_review_community, service, community_owner
+):
+    """Test that accepting a new version doesn't duplicate the community."""
+    # Step 1: Create and accept first version
+    minimal_record["parent"] = {
+        "review": {
+            "type": CommunitySubmission.type_id,
+            "receiver": {"community": open_review_community.data["id"]},
+        }
+    }
+    draft_v1 = service.create(community_owner.identity, minimal_record)
+    req_v1 = service.review.submit(
+        community_owner.identity, draft_v1.id, data={}, require_review=True
+    )
+
+    community_owner_identity = get_community_owner_identity(open_review_community)
+    current_requests_service.execute_action(
+        community_owner_identity, req_v1.id, "accept"
+    )
+
+    record_v1 = service.read(community_owner.identity, draft_v1.id)
+    communities_v1 = record_v1.data["parent"]["communities"]["ids"]
+    assert open_review_community.data["id"] in communities_v1
+    community_count_v1 = len(communities_v1)
+
+    # Step 2: Create new version (already in community)
+    draft_v2 = service.new_version(community_owner.identity, draft_v1.id)
+    assert open_review_community.data["id"] in draft_v2.data["parent"]["communities"]["ids"]
+
+    # Step 3: Submit new version for review
+    data = {
+        "type": CommunitySubmission.type_id,
+        "receiver": {"community": open_review_community.data["id"]},
+    }
+    req_v2 = service.review.update(
+        community_owner.identity, draft_v2.id, data, revision_id=draft_v2.data["revision_id"]
+    )
+    service.review.submit(community_owner.identity, draft_v2.id, data={}, require_review=True)
+
+    # Step 4: Accept new version
+    current_requests_service.execute_action(
+        community_owner_identity, req_v2.id, "accept"
+    )
+
+    # Step 5: Verify community wasn't duplicated
+    record_v2 = service.read(community_owner.identity, draft_v2.id)
+    communities_v2 = record_v2.data["parent"]["communities"]["ids"]
+
+    # Same community should still be present but not duplicated
+    assert open_review_community.data["id"] in communities_v2
+    assert len(communities_v2) == community_count_v1  # No duplication
+    assert communities_v2.count(open_review_community.data["id"]) == 1  # Only one occurrence
